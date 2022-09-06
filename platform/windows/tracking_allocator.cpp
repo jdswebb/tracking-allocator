@@ -1,5 +1,7 @@
 #define NOGDI
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #pragma warning (push)
 #pragma warning (disable: 4091) // declaration of 'xx' hides previous local declaration
@@ -230,7 +232,7 @@ static const uint32_t FREED_MEMORY_PATTERN = 0xDD;
 static const uint32_t ALLOCATION_GUARD = 0xFDFDFDFD;
 
 
-Allocator::Allocator()
+TrackingAllocatorImpl::TrackingAllocatorImpl()
 	: m_root(nullptr)
 	, m_total_size(0)
 	, m_is_fill_enabled(true)
@@ -252,7 +254,7 @@ Allocator::Allocator()
 }
 
 
-void Allocator::checkLeaks()
+void TrackingAllocatorImpl::checkLeaks()
 {
 	AllocationInfo* last_sentinel = &m_sentinels[1];
 	if (m_root != last_sentinel)
@@ -272,25 +274,25 @@ void Allocator::checkLeaks()
 }
 
 
-Allocator::~Allocator()
+TrackingAllocatorImpl::~TrackingAllocatorImpl()
 {
 	checkLeaks();
 }
 
 
-void Allocator::lock()
+void TrackingAllocatorImpl::lock()
 {
 	m_mutex.TRACKING_ALLOCATOR_MUTEX_LOCK_FUNC();
 }
 
 
-void Allocator::unlock()
+void TrackingAllocatorImpl::unlock()
 {
 	m_mutex.TRACKING_ALLOCATOR_MUTEX_UNLOCK_FUNC();
 }
 
 
-void Allocator::checkGuards()
+void TrackingAllocatorImpl::checkGuards()
 {
 	if (m_are_guards_enabled) return;
 
@@ -307,45 +309,45 @@ void Allocator::checkGuards()
 }
 
 
-size_t Allocator::getAllocationOffset()
+size_t TrackingAllocatorImpl::getAllocationOffset()
 {
 	return sizeof(AllocationInfo) + (m_are_guards_enabled ? sizeof(ALLOCATION_GUARD) : 0);
 }
 
 
-size_t Allocator::getNeededMemory(size_t size)
+size_t TrackingAllocatorImpl::getNeededMemory(size_t size)
 {
 	return size + sizeof(AllocationInfo) + (m_are_guards_enabled ? sizeof(ALLOCATION_GUARD) << 1 : 0);
 }
 
 
-size_t Allocator::getNeededMemory(size_t size, size_t align)
+size_t TrackingAllocatorImpl::getNeededMemory(size_t size, size_t align)
 {
 	return size + sizeof(AllocationInfo) + (m_are_guards_enabled ? sizeof(ALLOCATION_GUARD) << 1 : 0) +
 		   align;
 }
 
 
-Allocator::AllocationInfo* Allocator::getAllocationInfoFromSystem(void* system_ptr)
+TrackingAllocatorImpl::AllocationInfo* TrackingAllocatorImpl::getAllocationInfoFromSystem(void* system_ptr)
 {
 	return (AllocationInfo*)(m_are_guards_enabled ? (uint8_t*)system_ptr + sizeof(ALLOCATION_GUARD)
 												  : system_ptr);
 }
 
 
-void* Allocator::getUserPtrFromAllocationInfo(AllocationInfo* info)
+void* TrackingAllocatorImpl::getUserPtrFromAllocationInfo(AllocationInfo* info)
 {
 	return ((uint8_t*)info + sizeof(AllocationInfo));
 }
 
 
-Allocator::AllocationInfo* Allocator::getAllocationInfoFromUser(void* user_ptr)
+TrackingAllocatorImpl::AllocationInfo* TrackingAllocatorImpl::getAllocationInfoFromUser(void* user_ptr)
 {
 	return (AllocationInfo*)((uint8_t*)user_ptr - sizeof(AllocationInfo));
 }
 
 
-uint8_t* Allocator::getUserFromSystem(void* system_ptr, size_t align)
+uint8_t* TrackingAllocatorImpl::getUserFromSystem(void* system_ptr, size_t align)
 {
 	size_t diff = (m_are_guards_enabled ? sizeof(ALLOCATION_GUARD) : 0) + sizeof(AllocationInfo);
 
@@ -354,7 +356,7 @@ uint8_t* Allocator::getUserFromSystem(void* system_ptr, size_t align)
 }
 
 
-uint8_t* Allocator::getSystemFromUser(void* user_ptr)
+uint8_t* TrackingAllocatorImpl::getSystemFromUser(void* user_ptr)
 {
 	AllocationInfo* info = getAllocationInfoFromUser(user_ptr);
 	size_t diff = (m_are_guards_enabled ? sizeof(ALLOCATION_GUARD) : 0) + sizeof(AllocationInfo);
@@ -363,7 +365,7 @@ uint8_t* Allocator::getSystemFromUser(void* user_ptr)
 }
 
 
-void* Allocator::allocate_aligned(size_t size, size_t align)
+void* TrackingAllocatorImpl::allocate_aligned(size_t size, size_t align)
 {
 	void* system_ptr;
 	AllocationInfo* info;
@@ -405,7 +407,7 @@ void* Allocator::allocate_aligned(size_t size, size_t align)
 }
 
 
-void Allocator::deallocate_aligned(void* user_ptr)
+void TrackingAllocatorImpl::deallocate_aligned(void* user_ptr)
 {
 	if (user_ptr)
 	{
@@ -442,7 +444,7 @@ void Allocator::deallocate_aligned(void* user_ptr)
 }
 
 
-void* Allocator::allocate(size_t size)
+void* TrackingAllocatorImpl::allocate(size_t size)
 {
 	void* system_ptr;
 	AllocationInfo* info;
@@ -481,7 +483,7 @@ void* Allocator::allocate(size_t size)
 	return user_ptr;
 }
 
-void Allocator::deallocate(void* user_ptr)
+void TrackingAllocatorImpl::deallocate(void* user_ptr)
 {
 	if (user_ptr)
 	{
@@ -515,6 +517,28 @@ void Allocator::deallocate(void* user_ptr)
 
 		free((void*)system_ptr);
 	}
+}
+
+TrackingAllocatorImpl g_tracking_allocator_impl_instance;
+
+void* TrackingAllocator::alloc(size_t size)
+{
+	return g_tracking_allocator_impl_instance.allocate(size);
+}
+
+void TrackingAllocator::free(void* mem)
+{
+    g_tracking_allocator_impl_instance.deallocate(mem);
+}
+
+void* TrackingAllocator::aligned_alloc(size_t size, size_t alignment)
+{
+    return g_tracking_allocator_impl_instance.allocate_aligned(size, alignment);
+}
+
+void TrackingAllocator::aligned_free(void* mem)
+{
+	g_tracking_allocator_impl_instance.deallocate_aligned(mem);
 }
 
 }
