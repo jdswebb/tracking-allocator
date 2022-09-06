@@ -34,7 +34,7 @@ namespace TRACKING_ALLOCATOR_NAMESPACE
 {
 
 // tracks allocations to locate memory leaks
-struct TrackingAllocator
+struct TRACKING_ALLOCATOR_API TrackingAllocator
 {
     static void* alloc(size_t size);
     static void free(void* mem);
