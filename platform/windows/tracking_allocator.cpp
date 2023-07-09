@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2022 James Webb
+// SPDX-FileCopyrightText: 2013-9001 Mikulas Florek
+//
+// SPDX-License-Identifier: MIT
 #define NOGDI
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -11,7 +15,7 @@
 #include <atomic>
 
 #include "tracking_allocator.h"
-#include "platform/tracking_allocator_structs.h"
+#include "tracking_allocator/platform/tracking_allocator_structs.h"
 
 #pragma comment(lib, "DbgHelp.lib")
 
@@ -519,10 +523,18 @@ void TrackingAllocatorImpl::deallocate(void* user_ptr)
 	}
 }
 
+// must be free'd last
+#pragma warning(push)
+#pragma warning (disable:4073) 
+#pragma init_seg(lib)
 TrackingAllocatorImpl g_tracking_allocator_impl_instance;
+AtomicI64 g_tracking_allocator_allocation_counter = 0;
+int64_t g_tracking_allocator_last_allocation_count = 0;
+#pragma warning(pop)
 
 void* TrackingAllocator::alloc(size_t size)
 {
+	++g_tracking_allocator_allocation_counter;
 	return g_tracking_allocator_impl_instance.allocate(size);
 }
 
@@ -533,12 +545,26 @@ void TrackingAllocator::free(void* mem)
 
 void* TrackingAllocator::aligned_alloc(size_t size, size_t alignment)
 {
+    ++g_tracking_allocator_allocation_counter;
     return g_tracking_allocator_impl_instance.allocate_aligned(size, alignment);
 }
 
 void TrackingAllocator::aligned_free(void* mem)
 {
-	g_tracking_allocator_impl_instance.deallocate_aligned(mem);
+    g_tracking_allocator_impl_instance.deallocate_aligned(mem);
+}
+
+size_t TrackingAllocator::get_total_allocations()
+{
+    return g_tracking_allocator_allocation_counter;
+}
+
+// crude function for debugging - call this once per frame
+size_t TrackingAllocator::get_allocations_change()
+{
+    auto d = g_tracking_allocator_allocation_counter - g_tracking_allocator_last_allocation_count;
+    g_tracking_allocator_last_allocation_count = g_tracking_allocator_allocation_counter;
+    return d;
 }
 
 }
